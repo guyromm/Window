@@ -129,6 +129,11 @@
         // Head position (in cm, relative to camera)
         let headPosition = { x: 0, y: 0, z: 50 };
 
+        // Smoothing variables for jitter reduction
+        const positionHistory = [];
+        const SMOOTHING_WINDOW_MS = 200; // 1/5 second averaging window
+        let lastPositionUpdateTime = Date.now();
+
         const video = document.getElementById('video');
         const overlayCanvas = document.getElementById('canvas-overlay');
         const overlayCtx = overlayCanvas.getContext('2d');
@@ -291,8 +296,8 @@
 
             const left = (-SCREEN_WIDTH_CM/2 + amplifiedHeadX) * near * zScale / referenceZ;
             const right = (SCREEN_WIDTH_CM/2 + amplifiedHeadX) * near * zScale / referenceZ;
-            const bottom = (-SCREEN_HEIGHT_CM/2 - amplifiedHeadY) * near * zScale / referenceZ;
-            const top = (SCREEN_HEIGHT_CM/2 - amplifiedHeadY) * near * zScale / referenceZ;
+            const bottom = (-SCREEN_HEIGHT_CM/2 - amplifiedHeadY) * near * zScale / referenceZ;  // Original was correct
+            const top = (SCREEN_HEIGHT_CM/2 - amplifiedHeadY) * near * zScale / referenceZ;      // Original was correct
 
             return createPerspectiveMatrix(left, right, bottom, top, near, far);
         }
@@ -322,29 +327,43 @@
             const corridorHeight = 20;
             const corridorDepth = 150; // Much longer corridor
             const corridorStart = -5; // Start corridor closer behind screen
+            const corridorNear = 10; // Near wall position (behind viewer)
 
             const vertices = [
-                // Near corridor entrance (behind screen)
-                -corridorWidth/2, -corridorHeight/2, corridorStart,  // bottom-left near
-                 corridorWidth/2, -corridorHeight/2, corridorStart,  // bottom-right near
-                 corridorWidth/2,  corridorHeight/2, corridorStart,  // top-right near
-                -corridorWidth/2,  corridorHeight/2, corridorStart,  // top-left near
+                // Near wall (behind viewer)
+                -corridorWidth/2, -corridorHeight/2, corridorNear,  // 0: bottom-left near wall
+                 corridorWidth/2, -corridorHeight/2, corridorNear,  // 1: bottom-right near wall
+                 corridorWidth/2,  corridorHeight/2, corridorNear,  // 2: top-right near wall
+                -corridorWidth/2,  corridorHeight/2, corridorNear,  // 3: top-left near wall
+
+                // Middle corridor (behind screen)
+                -corridorWidth/2, -corridorHeight/2, corridorStart,  // 4: bottom-left middle
+                 corridorWidth/2, -corridorHeight/2, corridorStart,  // 5: bottom-right middle
+                 corridorWidth/2,  corridorHeight/2, corridorStart,  // 6: top-right middle
+                -corridorWidth/2,  corridorHeight/2, corridorStart,  // 7: top-left middle
 
                 // Far corridor end - much smaller for dramatic perspective
-                -corridorWidth/6, -corridorHeight/6, corridorStart - corridorDepth,  // bottom-left far
-                 corridorWidth/6, -corridorHeight/6, corridorStart - corridorDepth,  // bottom-right far
-                 corridorWidth/6,  corridorHeight/6, corridorStart - corridorDepth,  // top-right far
-                -corridorWidth/6,  corridorHeight/6, corridorStart - corridorDepth   // top-left far
+                -corridorWidth/6, -corridorHeight/6, corridorStart - corridorDepth,  // 8: bottom-left far
+                 corridorWidth/6, -corridorHeight/6, corridorStart - corridorDepth,  // 9: bottom-right far
+                 corridorWidth/6,  corridorHeight/6, corridorStart - corridorDepth,  // 10: top-right far
+                -corridorWidth/6,  corridorHeight/6, corridorStart - corridorDepth   // 11: top-left far
             ];
 
             const indices = [
-                // Perspective lines (corridor edges)
-                0, 4,  // bottom-left to far bottom-left
-                1, 5,  // bottom-right to far bottom-right
-                2, 6,  // top-right to far top-right
-                3, 7,  // top-left to far top-left
-                // Far rectangle
-                4, 5,  5, 6,  6, 7,  7, 4
+                // Near wall rectangle
+                0, 1,  1, 2,  2, 3,  3, 0,
+                // Perspective lines from near to middle
+                0, 4,  // bottom-left near to middle
+                1, 5,  // bottom-right near to middle
+                2, 6,  // top-right near to middle
+                3, 7,  // top-left near to middle
+                // Perspective lines from middle to far
+                4, 8,   // bottom-left to far bottom-left
+                5, 9,   // bottom-right to far bottom-right
+                6, 10,  // top-right to far top-right
+                7, 11,  // top-left to far top-left
+                // Far wall rectangle
+                8, 9,  9, 10,  10, 11,  11, 8
             ];
 
             // Create and bind position buffer
@@ -433,6 +452,7 @@
         function updateHeadPosition(faceX, faceY, faceWidth, faceHeight) {
             const videoWidth = overlayCanvas.width;
             const videoHeight = overlayCanvas.height;
+            const currentTime = Date.now();
 
             // Auto-calibrate on first detection if not already calibrated
             if (!baselineFaceWidth) {
@@ -440,20 +460,59 @@
                 console.log('Auto-calibrated baseline face width:', baselineFaceWidth);
             }
 
-            // Calculate distance - FIXED: larger face = closer, smaller face = farther
+            // Calculate raw position values
             const newDistance = (baselineFaceWidth / faceWidth) * calibratedDistance;
-            headPosition.z = newDistance;
-
-            // Debug logging
-            console.log(`Face width: ${faceWidth.toFixed(1)}, Distance: ${newDistance.toFixed(1)}`);
-
-            // Calculate horizontal and vertical offsets
             const horizontalPixelOffset = faceX - (videoWidth / 2);
             const verticalPixelOffset = faceY - (videoHeight / 2);
+            const rawX = (horizontalPixelOffset / videoWidth) * (SCREEN_WIDTH_CM * 5.0);
+            const rawY = (verticalPixelOffset / videoHeight) * (SCREEN_HEIGHT_CM * 5.0);  // Removed negation to fix inversion
 
-            // Convert to cm and scale appropriately for head tracking - AMPLIFIED for more dramatic effect
-            headPosition.x = (horizontalPixelOffset / videoWidth) * (SCREEN_WIDTH_CM * 5.0); // 5x amplification for more dramatic lateral shifts
-            headPosition.y = -(verticalPixelOffset / videoHeight) * (SCREEN_HEIGHT_CM * 5.0); // 5x amplification for more dramatic vertical shifts
+            // Add current position to history
+            positionHistory.push({
+                x: rawX,
+                y: rawY,
+                z: newDistance,
+                timestamp: currentTime
+            });
+
+            // Remove old positions outside the smoothing window
+            const cutoffTime = currentTime - SMOOTHING_WINDOW_MS;
+            while (positionHistory.length > 0 && positionHistory[0].timestamp < cutoffTime) {
+                positionHistory.shift();
+            }
+
+            // Calculate smoothed position using weighted average (newer samples have more weight)
+            let totalWeight = 0;
+            let smoothedX = 0, smoothedY = 0, smoothedZ = 0;
+
+            positionHistory.forEach((pos, index) => {
+                // Linear weight based on age (newer = higher weight)
+                const age = currentTime - pos.timestamp;
+                const weight = 1 - (age / SMOOTHING_WINDOW_MS);
+
+                smoothedX += pos.x * weight;
+                smoothedY += pos.y * weight;
+                smoothedZ += pos.z * weight;
+                totalWeight += weight;
+            });
+
+            // Apply smoothed values if we have enough data
+            if (totalWeight > 0) {
+                headPosition.x = smoothedX / totalWeight;
+                headPosition.y = smoothedY / totalWeight;
+                headPosition.z = smoothedZ / totalWeight;
+            } else {
+                // Fallback to raw values if no history
+                headPosition.x = rawX;
+                headPosition.y = rawY;
+                headPosition.z = newDistance;
+            }
+
+            // Debug logging (less frequent)
+            if (currentTime - lastPositionUpdateTime > 100) {
+                console.log(`Smoothed position - X: ${headPosition.x.toFixed(1)}, Y: ${headPosition.y.toFixed(1)}, Z: ${headPosition.z.toFixed(1)}`);
+                lastPositionUpdateTime = currentTime;
+            }
 
             // Update display
             document.getElementById('headX').textContent = headPosition.x.toFixed(1);
