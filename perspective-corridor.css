@@ -71,3 +71,14 @@ button:hover {
     color: #ffff00;
     margin-bottom: 8px;
 }
+
+#isometric-debug {
+    position: fixed;
+    bottom: 20px;
+    left: 20px;
+    border: 1px solid #00ff00;
+    background: rgba(0, 0, 0, 0.8);
+    z-index: 1000;
+    width: 300px;
+    height: 300px;
+}

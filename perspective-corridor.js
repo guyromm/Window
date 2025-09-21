@@ -13,7 +13,8 @@ let isHeadTracking = false;
 let baselineFaceWidth = null;
 let calibratedDistance = 300; // Default 3m viewing distance
 
-// Head position (in cm, relative to camera)
+// Head position (in cm, relative to screen center)
+// Will be initialized after constants are defined
 let headPosition = { x: 0, y: 0, z: 300 }; // Default 3m viewing distance
 
 // Smoothing variables for jitter reduction
@@ -32,11 +33,11 @@ const SCREEN_WIDTH_CM = 143.9;
 const SCREEN_HEIGHT_CM = 80.9;
 
 // Camera offset from screen center (in cm)
-// Camera is 50cm below viewport center, 30cm from right edge
-// So it's at: x = (143.9/2 - 30) = 41.95cm left of center
-// y = -50cm below center
-const CAMERA_OFFSET_X = 41.95;  // Camera is offset to the left from center
-const CAMERA_OFFSET_Y = -50;    // Camera is below screen center
+// Camera is at the center-top of the display
+// x = 0 (centered horizontally)
+// y = 40.45cm (half of 80.9cm height - at the top edge)
+const CAMERA_OFFSET_X = 0;  // Camera is centered horizontally
+const CAMERA_OFFSET_Y = 40.45;  // Camera is at the top of screen (80.9/2)
 
 // Initialize WebGL
 function initWebGL() {
@@ -143,57 +144,75 @@ function multiply(a, b) {
 
 function createPerspectiveMatrix(left, right, bottom, top, near, far) {
     const matrix = new Float32Array(16);
+
+    // Column 0
     matrix[0] = (2 * near) / (right - left);
     matrix[1] = 0;
-    matrix[2] = (right + left) / (right - left);
+    matrix[2] = 0;
     matrix[3] = 0;
+
+    // Column 1
     matrix[4] = 0;
     matrix[5] = (2 * near) / (top - bottom);
-    matrix[6] = (top + bottom) / (top - bottom);
+    matrix[6] = 0;
     matrix[7] = 0;
-    matrix[8] = 0;
-    matrix[9] = 0;
+
+    // Column 2 - this is where the asymmetric frustum shift happens
+    matrix[8] = (right + left) / (right - left);
+    matrix[9] = (top + bottom) / (top - bottom);
     matrix[10] = -(far + near) / (far - near);
-    matrix[11] = -(2 * far * near) / (far - near);
+    matrix[11] = -1;
+
+    // Column 3
     matrix[12] = 0;
     matrix[13] = 0;
-    matrix[14] = -1;
+    matrix[14] = -(2 * far * near) / (far - near);
     matrix[15] = 0;
+
     return matrix;
 }
 
 function createViewMatrix(eyeX, eyeY, eyeZ) {
-    // Translation matrix for camera position - moves the world opposite to head movement
+    // Translation matrix for camera position
+    // In column-major order for OpenGL/WebGL
     return new Float32Array([
         1, 0, 0, 0,
         0, 1, 0, 0,
         0, 0, 1, 0,
-        -eyeX, -eyeY, -eyeZ, 1
+        eyeX, eyeY, eyeZ, 1
     ]);
 }
 
 function createPerspectiveCorrectedMatrix(headX, headY, headZ) {
-    const near = 1.0;  // Closer near plane to see nearby geometry
-    const far = 1000.0;  // Further far plane
-
-    // For proper "window" perspective:
-    // Moving head right should show more of the left side
-    // Moving head away should make corridor appear farther/smaller
-
-    // FIXED: Invert the Z relationship - use a reference distance with weaker effect
-    const referenceZ = 300; // Reference distance matching default viewing distance
-    const zEffect = 0.3; // Weaker Z effect (30% instead of 100%)
-    const zScale = 1 + (referenceZ / headZ - 1) * zEffect; // Much weaker Z scaling
+    // The near plane should be at the screen distance
+    // Also dampen Z-axis movement for consistency
+    const dampedZ = 300 + (headZ - 300) * 0.5;  // Dampen changes from default 300cm
+    const near = dampedZ;  // Near plane at viewer's distance from screen
+    const far = dampedZ + 1000.0;  // Far plane extends beyond
 
     // Calculate the view frustum based on head position relative to screen
-    // Reduced amplification for larger screen - was too dramatic at 2.0
-    const amplifiedHeadX = headX * 1.0; // Natural 1:1 lateral effect
-    const amplifiedHeadY = headY * 1.0; // Natural 1:1 vertical effect
+    // This creates the "window" effect where the screen acts as a portal
+    // The screen dimensions define the frustum at the near plane
+    // Reduced sensitivity - divide head movement by 2
+    const dampingFactor = 0.5;
+    const left = -SCREEN_WIDTH_CM/2 + headX * dampingFactor;
+    const right = SCREEN_WIDTH_CM/2 + headX * dampingFactor;
+    const bottom = -SCREEN_HEIGHT_CM/2 + headY * dampingFactor;
+    const top = SCREEN_HEIGHT_CM/2 + headY * dampingFactor;
 
-    const left = (-SCREEN_WIDTH_CM/2 + amplifiedHeadX) * near * zScale / referenceZ;
-    const right = (SCREEN_WIDTH_CM/2 + amplifiedHeadX) * near * zScale / referenceZ;
-    const bottom = (-SCREEN_HEIGHT_CM/2 - amplifiedHeadY) * near * zScale / referenceZ;  // Original was correct
-    const top = (SCREEN_HEIGHT_CM/2 - amplifiedHeadY) * near * zScale / referenceZ;      // Original was correct
+    // Debug log frustum values periodically
+    if (!window.frustumLogCounter) window.frustumLogCounter = 0;
+    if (window.frustumLogCounter++ % 60 === 0) {
+        console.log('Frustum values:', {
+            left: left.toFixed(3),
+            right: right.toFixed(3),
+            bottom: bottom.toFixed(3),
+            top: top.toFixed(3),
+            headX: headX.toFixed(1),
+            headY: headY.toFixed(1),
+            headZ: headZ.toFixed(1)
+        });
+    }
 
     return createPerspectiveMatrix(left, right, bottom, top, near, far);
 }
@@ -217,18 +236,15 @@ function render() {
         headPosition.z
     );
 
-    // Create view matrix that moves the camera based on head position
-    const viewMatrix = createViewMatrix(
-        0,  // No X translation for now to debug
-        0,  // No Y translation for now to debug
-        0   // Keep camera at origin
-    );
+    // Create view matrix - keep camera at screen (z=0)
+    // The perspective effect comes entirely from the frustum
+    const viewMatrix = createViewMatrix(0, 0, 0);
 
     // Corridor geometry scaled for 65" monitor and 3m viewing distance
-    const corridorWidth = 200;  // Much wider corridor
-    const corridorHeight = 150;  // Much taller corridor
-    const corridorNear = 20;     // Start behind viewer (positive Z)
-    const corridorFar = -500;    // Far wall much further away
+    const corridorWidth = 300;  // Even wider corridor to ensure visibility
+    const corridorHeight = 200;  // Taller corridor
+    const corridorNear = -50;    // Move near wall in front of viewer
+    const corridorFar = -800;    // Far wall much further away
 
     // Define all vertices for the corridor walls
     const vertices = [
@@ -271,8 +287,8 @@ function render() {
         1, 1, 0,  1, 1, 0,  1, 1, 0,  1, 1, 0,
         // Left wall (brown) - 4 vertices
         0.5, 0.25, 0,  0.5, 0.25, 0,  0.5, 0.25, 0,  0.5, 0.25, 0,
-        // Right wall (brown) - 4 vertices
-        0.5, 0.25, 0,  0.5, 0.25, 0,  0.5, 0.25, 0,  0.5, 0.25, 0,
+        // Right wall (orange) - 4 vertices
+        1, 0.5, 0,  1, 0.5, 0,  1, 0.5, 0,  1, 0.5, 0,
         // End wall (red) - 4 vertices
         1, 0, 0,  1, 0, 0,  1, 0, 0,  1, 0, 0
     ];
@@ -329,6 +345,174 @@ function render() {
     if (error !== gl.NO_ERROR) {
         console.error('WebGL Error:', error);
     }
+
+    // Draw isometric debug view
+    drawIsometricDebugView(corridorWidth, corridorHeight, corridorNear, corridorFar);
+}
+
+// Isometric debug view
+let isometricCanvas;
+let isometricCtx;
+
+function drawIsometricDebugView(corridorWidth, corridorHeight, corridorNear, corridorFar) {
+    if (!isometricCanvas) {
+        isometricCanvas = document.getElementById('isometric-debug');
+        isometricCtx = isometricCanvas.getContext('2d');
+    }
+
+    const ctx = isometricCtx;
+    const width = isometricCanvas.width;
+    const height = isometricCanvas.height;
+
+    // Clear canvas
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.9)';
+    ctx.fillRect(0, 0, width, height);
+
+    // Set up isometric transformation
+    // Center of canvas
+    const centerX = width / 2;
+    const centerY = height / 2 + 50;
+
+    // Scale factor to fit scene
+    const scale = 0.3;
+
+    // Isometric projection angles
+    const angleX = Math.PI / 6; // 30 degrees
+    const angleY = Math.PI / 4; // 45 degrees
+
+    // Convert 3D to isometric 2D
+    function toIsometric(x, y, z) {
+        // Apply scale and isometric transformation
+        const isoX = (x - z) * Math.cos(angleX) * scale;
+        const isoY = ((x + z) * Math.sin(angleX) - y) * scale;
+        return {
+            x: centerX + isoX,
+            y: centerY + isoY
+        };
+    }
+
+    // Draw grid for reference
+    ctx.strokeStyle = 'rgba(0, 255, 0, 0.2)';
+    ctx.lineWidth = 0.5;
+    for (let i = -200; i <= 200; i += 50) {
+        const start = toIsometric(i, 0, -200);
+        const end = toIsometric(i, 0, 200);
+        ctx.beginPath();
+        ctx.moveTo(start.x, start.y);
+        ctx.lineTo(end.x, end.y);
+        ctx.stroke();
+
+        const start2 = toIsometric(-200, 0, i);
+        const end2 = toIsometric(200, 0, i);
+        ctx.beginPath();
+        ctx.moveTo(start2.x, start2.y);
+        ctx.lineTo(end2.x, end2.y);
+        ctx.stroke();
+    }
+
+    // Draw corridor
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2;
+
+    // Near rectangle
+    const nearCorners = [
+        toIsometric(-corridorWidth/2, -corridorHeight/2, corridorNear),
+        toIsometric(corridorWidth/2, -corridorHeight/2, corridorNear),
+        toIsometric(corridorWidth/2, corridorHeight/2, corridorNear),
+        toIsometric(-corridorWidth/2, corridorHeight/2, corridorNear)
+    ];
+
+    // Far rectangle
+    const farCorners = [
+        toIsometric(-corridorWidth/4, -corridorHeight/4, corridorFar),
+        toIsometric(corridorWidth/4, -corridorHeight/4, corridorFar),
+        toIsometric(corridorWidth/4, corridorHeight/4, corridorFar),
+        toIsometric(-corridorWidth/4, corridorHeight/4, corridorFar)
+    ];
+
+    // Draw corridor edges
+    ctx.beginPath();
+    // Near rectangle
+    ctx.moveTo(nearCorners[0].x, nearCorners[0].y);
+    for (let i = 1; i < 4; i++) {
+        ctx.lineTo(nearCorners[i].x, nearCorners[i].y);
+    }
+    ctx.closePath();
+    ctx.stroke();
+
+    // Far rectangle
+    ctx.beginPath();
+    ctx.moveTo(farCorners[0].x, farCorners[0].y);
+    for (let i = 1; i < 4; i++) {
+        ctx.lineTo(farCorners[i].x, farCorners[i].y);
+    }
+    ctx.closePath();
+    ctx.stroke();
+
+    // Connecting lines
+    for (let i = 0; i < 4; i++) {
+        ctx.beginPath();
+        ctx.moveTo(nearCorners[i].x, nearCorners[i].y);
+        ctx.lineTo(farCorners[i].x, farCorners[i].y);
+        ctx.stroke();
+    }
+
+    // Draw viewport/screen (at z=0)
+    ctx.strokeStyle = '#00ffff';
+    ctx.lineWidth = 3;
+    const screenCorners = [
+        toIsometric(-SCREEN_WIDTH_CM/2, -SCREEN_HEIGHT_CM/2, 0),
+        toIsometric(SCREEN_WIDTH_CM/2, -SCREEN_HEIGHT_CM/2, 0),
+        toIsometric(SCREEN_WIDTH_CM/2, SCREEN_HEIGHT_CM/2, 0),
+        toIsometric(-SCREEN_WIDTH_CM/2, SCREEN_HEIGHT_CM/2, 0)
+    ];
+
+    ctx.beginPath();
+    ctx.moveTo(screenCorners[0].x, screenCorners[0].y);
+    for (let i = 1; i < 4; i++) {
+        ctx.lineTo(screenCorners[i].x, screenCorners[i].y);
+    }
+    ctx.closePath();
+    ctx.stroke();
+
+    // Draw viewer position
+    const viewerPos = toIsometric(headPosition.x, headPosition.y, headPosition.z);
+
+    // Draw viewer as a sphere
+    ctx.fillStyle = '#ff0000';
+    ctx.beginPath();
+    ctx.arc(viewerPos.x, viewerPos.y, 8, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Draw viewing frustum lines from viewer to screen corners
+    ctx.strokeStyle = 'rgba(255, 0, 0, 0.3)';
+    ctx.lineWidth = 1;
+    for (let corner of screenCorners) {
+        ctx.beginPath();
+        ctx.moveTo(viewerPos.x, viewerPos.y);
+        ctx.lineTo(corner.x, corner.y);
+        ctx.stroke();
+    }
+
+    // Draw camera position
+    const cameraPos = toIsometric(CAMERA_OFFSET_X, CAMERA_OFFSET_Y, 0);
+    ctx.fillStyle = '#00ff00';
+    ctx.beginPath();
+    ctx.arc(cameraPos.x, cameraPos.y, 5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Draw labels
+    ctx.fillStyle = '#00ff00';
+    ctx.font = '10px monospace';
+    ctx.fillText('Viewer', viewerPos.x + 10, viewerPos.y);
+    ctx.fillText('Camera', cameraPos.x + 10, cameraPos.y);
+    ctx.fillText('Screen', screenCorners[1].x + 5, screenCorners[1].y);
+
+    // Draw position info
+    ctx.fillStyle = '#ffff00';
+    ctx.fillText(`X: ${headPosition.x.toFixed(0)}cm`, 10, 20);
+    ctx.fillText(`Y: ${headPosition.y.toFixed(0)}cm`, 10, 35);
+    ctx.fillText(`Z: ${headPosition.z.toFixed(0)}cm`, 10, 50);
 }
 
 // Head tracking functions
@@ -453,8 +637,9 @@ function updateHeadPosition(faceX, faceY, faceWidth, faceHeight) {
     }
 
     // Debug logging (less frequent)
-    if (currentTime - lastPositionUpdateTime > 100) {
-        // console.log(`Smoothed position - X: ${headPosition.x.toFixed(1)}, Y: ${headPosition.y.toFixed(1)}, Z: ${headPosition.z.toFixed(1)}`);
+    if (currentTime - lastPositionUpdateTime > 500) {  // Every 500ms
+        console.log(`Head position - X: ${headPosition.x.toFixed(1)}cm, Y: ${headPosition.y.toFixed(1)}cm, Z: ${headPosition.z.toFixed(1)}cm`);
+        console.log(`Raw offsets - X: ${horizontalPixelOffset.toFixed(0)}px, Y: ${verticalPixelOffset.toFixed(0)}px`);
         lastPositionUpdateTime = currentTime;
     }
 
