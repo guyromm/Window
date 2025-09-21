@@ -19,6 +19,12 @@
             <button id="trackingBtn" onclick="toggleHeadTracking()">Stop Head Tracking</button>
             <button onclick="calibrateDistance()">Calibrate Distance</button>
         </div>
+        <div style="margin-top: 10px;">
+            <label style="cursor: pointer;">
+                <input type="checkbox" id="interlacedMode" checked onchange="toggleInterlacedMode()">
+                <span style="color: #00ff00;">Interlaced Stereo Mode</span>
+            </label>
+        </div>
         <div style="margin-top: 10px; font-size: 10px; color: #888;">
             Move your head to see perspective change!<br>
             Calibrate distance for better accuracy.

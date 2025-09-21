@@ -5,6 +5,12 @@ let positionLocation;
 let colorLocation;
 let mvpLocation;
 let colorBuffer;
+let interlacedLocation;
+let eyePassLocation;
+let isInterlacedMode = true;
+
+// Stereoscopic settings
+const EYE_SEPARATION = 6.5; // Average human IPD in cm
 
 // Head tracking variables
 let faceDetection;
@@ -66,13 +72,36 @@ function initWebGL() {
         }
     `;
 
-    // Fragment shader
+    // Fragment shader with interlaced stereo support
     const fragmentShaderSource = `
         precision mediump float;
         varying vec3 vColor;
+        uniform bool interlaced;
+        uniform int eyePass; // 0 for left eye, 1 for right eye
+        uniform vec2 resolution;
 
         void main() {
-            gl_FragColor = vec4(vColor, 1.0);
+            if (interlaced) {
+                // Get the current pixel row
+                float row = floor(gl_FragCoord.y);
+
+                // Determine if this row should be rendered for current eye
+                bool isEvenRow = mod(row, 2.0) < 0.5;
+
+                if (eyePass == 1 && isEvenRow) {
+                    // Right eye pass, even row - render in red
+                    gl_FragColor = vec4(vColor.r, 0.0, 0.0, 1.0);
+                } else if (eyePass == 0 && !isEvenRow) {
+                    // Left eye pass, odd row - render in blue
+                    gl_FragColor = vec4(0.0, 0.0, vColor.b, 1.0);
+                } else {
+                    // Skip this fragment
+                    discard;
+                }
+            } else {
+                // Normal rendering
+                gl_FragColor = vec4(vColor, 1.0);
+            }
         }
     `;
 
@@ -91,9 +120,15 @@ function initWebGL() {
     positionLocation = gl.getAttribLocation(program, 'position');
     colorLocation = gl.getAttribLocation(program, 'color');
     mvpLocation = gl.getUniformLocation(program, 'mvpMatrix');
+    interlacedLocation = gl.getUniformLocation(program, 'interlaced');
+    eyePassLocation = gl.getUniformLocation(program, 'eyePass');
+    const resolutionLocation = gl.getUniformLocation(program, 'resolution');
 
     gl.enableVertexAttribArray(positionLocation);
     gl.enableVertexAttribArray(colorLocation);
+
+    // Set the resolution uniform
+    gl.uniform2f(resolutionLocation, canvas.width, canvas.height);
 
     colorBuffer = gl.createBuffer();
 
@@ -229,12 +264,36 @@ function render() {
 
     gl.useProgram(program);
 
-    // Create perspective projection matrix
-    const projectionMatrix = createPerspectiveCorrectedMatrix(
-        headPosition.x,
-        headPosition.y,
-        headPosition.z
-    );
+    // Set interlaced mode uniform
+    gl.uniform1i(interlacedLocation, isInterlacedMode ? 1 : 0);
+
+    if (isInterlacedMode) {
+        // Clear first for interlaced mode
+        gl.clearColor(0.1, 0.1, 0.2, 1.0);
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+        // Render twice for stereoscopic vision
+        // First pass: Left eye (blue channel, odd rows)
+        gl.uniform1i(eyePassLocation, 0);
+        renderEye(headPosition.x - EYE_SEPARATION/2, headPosition.y, headPosition.z);
+
+        // Second pass: Right eye (red channel, even rows)
+        // Don't clear between passes to preserve left eye render
+        gl.uniform1i(eyePassLocation, 1);
+        renderEye(headPosition.x + EYE_SEPARATION/2, headPosition.y, headPosition.z);
+    } else {
+        // Normal rendering - single pass
+        gl.uniform1i(eyePassLocation, 0);
+        renderEye(headPosition.x, headPosition.y, headPosition.z);
+    }
+
+    // Draw isometric debug view (using fixed corridor dimensions)
+    drawIsometricDebugView(300, 200, -50, -800);
+}
+
+function renderEye(eyeX, eyeY, eyeZ) {
+    // Create perspective projection matrix for this eye
+    const projectionMatrix = createPerspectiveCorrectedMatrix(eyeX, eyeY, eyeZ);
 
     // Create view matrix - keep camera at screen (z=0)
     // The perspective effect comes entirely from the frustum
@@ -346,8 +405,6 @@ function render() {
         console.error('WebGL Error:', error);
     }
 
-    // Draw isometric debug view
-    drawIsometricDebugView(corridorWidth, corridorHeight, corridorNear, corridorFar);
 }
 
 // Isometric debug view
@@ -709,6 +766,12 @@ function calibrateDistance() {
     }
 }
 
+function toggleInterlacedMode() {
+    const checkbox = document.getElementById('interlacedMode');
+    isInterlacedMode = checkbox.checked;
+    console.log('Interlaced stereo mode:', isInterlacedMode ? 'ON' : 'OFF');
+}
+
 let lastDetectionBbox = null;
 
 // Animation loop
@@ -755,4 +818,11 @@ window.addEventListener('resize', function() {
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
     gl.viewport(0, 0, canvas.width, canvas.height);
+
+    // Update resolution uniform for interlaced mode
+    if (gl && program) {
+        gl.useProgram(program);
+        const resolutionLocation = gl.getUniformLocation(program, 'resolution');
+        gl.uniform2f(resolutionLocation, canvas.width, canvas.height);
+    }
 });
