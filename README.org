@@ -1,0 +1,145 @@
+* Perspective-Correct 3D Corridor with Head Tracking
+
+** Overview
+
+This project demonstrates a perspective-correct 3D corridor visualization that acts as a "window" into 3D space. The system uses head tracking via webcam to dynamically adjust the 3D perspective based on the viewer's position, creating an illusion that the screen is a portal to a virtual environment.
+
+** Features
+
+*** Core Functionality
+- *Real-time head tracking*: Uses MediaPipe Face Detection to track viewer position up to 3m distance
+- *Perspective-correct rendering*: Asymmetric view frustum adjusts based on viewer's head position
+- *"Window" effect*: Screen acts as a fixed viewport into 3D space - moving your head reveals different parts of the scene
+- *Textured 3D environment*: Procedurally generated textures for walls, floor, and ceiling
+- *3D furniture objects*: Tables, chairs, balls, and hanging lamps positioned at various distances
+
+*** Visual Features
+- Checkered tile floor (64x64 pixel tiles)
+- Brick-textured walls
+- Wood-textured ceiling
+- Realistic furniture with appropriate textures
+- Isometric debug view showing viewer position and scene geometry
+
+*** Stereoscopic 3D Mode
+- *Interlaced stereo rendering* for red/cyan anaglyph glasses
+- Separate left/right eye perspectives with 6.5cm eye separation
+- Toggle between normal and stereoscopic viewing modes
+
+** Technical Details
+
+*** Setup Requirements
+- 65" monitor (143.9cm × 80.9cm) configured in code
+- Webcam positioned at center-top of display (0cm horizontal offset, 40.45cm above center)
+- Default viewing distance: 3 meters
+- Modern web browser with WebGL support
+- Webcam permissions for head tracking
+
+*** Technologies Used
+- WebGL for 3D rendering
+- MediaPipe Face Detection (full model) for head tracking
+- Custom GLSL shaders for texture mapping and interlaced stereo
+- HTML5 Canvas for procedural texture generation
+
+** How to Run
+
+1. Navigate to the project directory:
+   #+BEGIN_SRC bash
+   cd /home/milez/Projects/webgma/perspective
+   #+END_SRC
+
+2. Start a local web server:
+   #+BEGIN_SRC bash
+   python3 -m http.server 8000
+   #+END_SRC
+
+   Or using Python 2:
+   #+BEGIN_SRC bash
+   python -m SimpleHTTPServer 8000
+   #+END_SRC
+
+3. Open your browser and navigate to:
+   #+BEGIN_SRC
+   http://localhost:8000/perspective-corridor.html
+   #+END_SRC
+
+4. Allow camera permissions when prompted
+
+5. The system will auto-start head tracking - position yourself 2-3 meters from the screen for optimal effect
+
+** Usage
+
+*** Controls
+- *Stop/Start Head Tracking*: Toggle head tracking on/off
+- *Calibrate Distance*: Calibrate your distance from the screen
+- *Interlaced Stereo Mode*: Toggle stereoscopic 3D (requires red/cyan glasses)
+
+*** Head Movement Effects
+- *Moving left/right*: Reveals corresponding sides of the corridor
+- *Moving up/down*: Changes vertical perspective
+- *Moving forward/backward*: Adjusts field of view and perspective depth
+
+** Stereoscopic Mode vs Regular Mode
+
+*** Regular Mode (Default)
+- Single perspective rendering
+- Natural colors preserved
+- No special equipment needed
+- Perspective changes based on head position only
+- Suitable for general viewing
+
+*** Stereoscopic Interlaced Mode
+- *Requires red/cyan anaglyph glasses*
+- Renders two separate views:
+  - Left eye (blue channel) on odd scanlines
+  - Right eye (red channel) on even scanlines
+- Creates true 3D depth perception
+- 6.5cm eye separation simulates human interpupillary distance
+- Objects appear to have physical depth and pop out of the screen
+- Some color information is sacrificed for the 3D effect
+
+** Scene Components
+
+*** Corridor Structure
+- Perspective-correct walls, floor, and ceiling
+- Extends 800 units into the distance
+- Tapers from full viewport size to vanishing point
+
+*** Furniture Objects
+1. *Wooden Table* - Left side, near distance (-180 units)
+2. *Wooden Chair* - Right side, mid distance (-350 units)
+3. *Ball* - Center floor, far distance (-500 units)
+4. *Ceiling Lamp* - Hanging from ceiling (-400 units)
+
+*** Debug Visualization
+- Bottom-left isometric view shows:
+  - Viewer position (green dot)
+  - Screen/viewport (blue rectangle)
+  - Corridor wireframe
+  - Camera position
+  - Real-time updates as viewer moves
+
+** Troubleshooting
+
+*** Head tracking not working
+- Ensure adequate lighting
+- Check camera permissions in browser
+- Stay within 3m of camera
+- Face should be clearly visible
+
+*** Performance issues
+- Close other browser tabs
+- Ensure hardware acceleration is enabled
+- Check WebGL support: [[https://get.webgl.org/]]
+
+*** Stereoscopic mode issues
+- Red lens should cover left eye
+- Cyan/blue lens should cover right eye
+- Adjust monitor brightness for better 3D effect
+- Some color distortion is normal in this mode
+
+** Files
+
+- =perspective-corridor.html= - Main HTML file
+- =perspective-corridor.js= - Core JavaScript implementation
+- =perspective-corridor.css= - Styling and layout
+- Additional test files for development

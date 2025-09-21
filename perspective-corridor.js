@@ -3,11 +3,20 @@ let gl;
 let program;
 let positionLocation;
 let colorLocation;
+let texCoordLocation;
 let mvpLocation;
 let colorBuffer;
+let texCoordBuffer;
 let interlacedLocation;
 let eyePassLocation;
-let isInterlacedMode = true;
+let surfaceTypeLocation;
+let isInterlacedMode = false;
+
+// Textures
+let floorTexture;
+let ceilingTexture;
+let wallTexture;
+let lampTexture;
 
 // Stereoscopic settings
 const EYE_SEPARATION = 6.5; // Average human IPD in cm
@@ -45,6 +54,158 @@ const SCREEN_HEIGHT_CM = 80.9;
 const CAMERA_OFFSET_X = 0;  // Camera is centered horizontally
 const CAMERA_OFFSET_Y = 40.45;  // Camera is at the top of screen (80.9/2)
 
+// Create procedural textures
+function createProceduralTextures() {
+    // Create checkered floor texture
+    function createCheckerTexture() {
+        const size = 256;
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+
+        const tileSize = 64; // Doubled tile size
+        for (let y = 0; y < size; y += tileSize) {
+            for (let x = 0; x < size; x += tileSize) {
+                const isEven = ((x / tileSize) + (y / tileSize)) % 2 === 0;
+                ctx.fillStyle = isEven ? '#ffffff' : '#333333';
+                ctx.fillRect(x, y, tileSize, tileSize);
+            }
+        }
+
+        const texture = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, canvas);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+        return texture;
+    }
+
+    // Create brick wall texture
+    function createBrickTexture() {
+        const size = 256;
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+
+        // Base brick color
+        ctx.fillStyle = '#8B4513';
+        ctx.fillRect(0, 0, size, size);
+
+        // Draw brick pattern
+        const brickWidth = 64;
+        const brickHeight = 24;
+        const mortarWidth = 4;
+
+        ctx.strokeStyle = '#444444';
+        ctx.lineWidth = mortarWidth;
+
+        for (let y = 0; y < size; y += brickHeight) {
+            const offset = (y / brickHeight) % 2 === 0 ? 0 : brickWidth / 2;
+            for (let x = -brickWidth; x < size + brickWidth; x += brickWidth) {
+                ctx.strokeRect(x + offset, y, brickWidth, brickHeight);
+            }
+        }
+
+        const texture = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, canvas);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+        return texture;
+    }
+
+    // Create wood plank ceiling texture
+    function createWoodTexture() {
+        const size = 256;
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+
+        // Base wood color
+        ctx.fillStyle = '#654321';
+        ctx.fillRect(0, 0, size, size);
+
+        // Draw wood grain
+        ctx.strokeStyle = '#4a3018';
+        ctx.lineWidth = 1;
+        for (let y = 0; y < size; y += 3) {
+            ctx.beginPath();
+            ctx.moveTo(0, y + Math.sin(y * 0.1) * 2);
+            ctx.lineTo(size, y + Math.sin(y * 0.1) * 2);
+            ctx.stroke();
+        }
+
+        // Draw plank divisions
+        ctx.strokeStyle = '#333333';
+        ctx.lineWidth = 2;
+        for (let x = 0; x < size; x += 64) {
+            ctx.beginPath();
+            ctx.moveTo(x, 0);
+            ctx.lineTo(x, size);
+            ctx.stroke();
+        }
+
+        const texture = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, canvas);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+        return texture;
+    }
+
+    // Create metallic yellow lamp texture
+    function createLampTexture() {
+        const size = 256;
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+
+        // Create metallic gradient for lamp shade
+        const gradient = ctx.createRadialGradient(size/2, size/2, 0, size/2, size/2, size/2);
+        gradient.addColorStop(0, '#FFEB3B');    // Bright yellow center
+        gradient.addColorStop(0.5, '#FFC107');  // Darker yellow
+        gradient.addColorStop(1, '#FF8F00');    // Orange edges
+
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, size, size);
+
+        // Add some metallic shine highlights
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+        ctx.lineWidth = 2;
+        for (let i = 0; i < 10; i++) {
+            const x = Math.random() * size;
+            const y = Math.random() * size;
+            ctx.beginPath();
+            ctx.arc(x, y, Math.random() * 10 + 5, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+
+        const texture = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, canvas);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+        return texture;
+    }
+
+    floorTexture = createCheckerTexture();
+    ceilingTexture = createWoodTexture();
+    wallTexture = createBrickTexture();
+    lampTexture = createLampTexture();
+}
+
 // Initialize WebGL
 function initWebGL() {
     const canvas = document.getElementById('glCanvas');
@@ -63,24 +224,46 @@ function initWebGL() {
     const vertexShaderSource = `
         attribute vec3 position;
         attribute vec3 color;
+        attribute vec2 texCoord;
         uniform mat4 mvpMatrix;
         varying vec3 vColor;
+        varying vec2 vTexCoord;
 
         void main() {
             gl_Position = mvpMatrix * vec4(position, 1.0);
             vColor = color;
+            vTexCoord = texCoord;
         }
     `;
 
-    // Fragment shader with interlaced stereo support
+    // Fragment shader with interlaced stereo support and textures
     const fragmentShaderSource = `
         precision mediump float;
         varying vec3 vColor;
+        varying vec2 vTexCoord;
         uniform bool interlaced;
         uniform int eyePass; // 0 for left eye, 1 for right eye
         uniform vec2 resolution;
+        uniform sampler2D floorTexture;
+        uniform sampler2D ceilingTexture;
+        uniform sampler2D wallTexture;
+        uniform int surfaceType; // 0=floor, 1=ceiling, 2=wall
 
         void main() {
+            vec3 finalColor;
+
+            // Select texture based on surface type
+            if (surfaceType == 0) {
+                // Floor - checkered tiles
+                finalColor = texture2D(floorTexture, vTexCoord).rgb;
+            } else if (surfaceType == 1) {
+                // Ceiling - wood planks
+                finalColor = texture2D(ceilingTexture, vTexCoord).rgb;
+            } else {
+                // Walls - brick
+                finalColor = texture2D(wallTexture, vTexCoord).rgb;
+            }
+
             if (interlaced) {
                 // Get the current pixel row
                 float row = floor(gl_FragCoord.y);
@@ -90,17 +273,17 @@ function initWebGL() {
 
                 if (eyePass == 1 && isEvenRow) {
                     // Right eye pass, even row - render in red
-                    gl_FragColor = vec4(vColor.r, 0.0, 0.0, 1.0);
+                    gl_FragColor = vec4(finalColor.r, 0.0, 0.0, 1.0);
                 } else if (eyePass == 0 && !isEvenRow) {
                     // Left eye pass, odd row - render in blue
-                    gl_FragColor = vec4(0.0, 0.0, vColor.b, 1.0);
+                    gl_FragColor = vec4(0.0, 0.0, finalColor.b, 1.0);
                 } else {
                     // Skip this fragment
                     discard;
                 }
             } else {
                 // Normal rendering
-                gl_FragColor = vec4(vColor, 1.0);
+                gl_FragColor = vec4(finalColor, 1.0);
             }
         }
     `;
@@ -119,18 +302,30 @@ function initWebGL() {
 
     positionLocation = gl.getAttribLocation(program, 'position');
     colorLocation = gl.getAttribLocation(program, 'color');
+    texCoordLocation = gl.getAttribLocation(program, 'texCoord');
     mvpLocation = gl.getUniformLocation(program, 'mvpMatrix');
     interlacedLocation = gl.getUniformLocation(program, 'interlaced');
     eyePassLocation = gl.getUniformLocation(program, 'eyePass');
+    surfaceTypeLocation = gl.getUniformLocation(program, 'surfaceType');
     const resolutionLocation = gl.getUniformLocation(program, 'resolution');
 
     gl.enableVertexAttribArray(positionLocation);
     gl.enableVertexAttribArray(colorLocation);
+    gl.enableVertexAttribArray(texCoordLocation);
 
     // Set the resolution uniform
     gl.uniform2f(resolutionLocation, canvas.width, canvas.height);
 
     colorBuffer = gl.createBuffer();
+    texCoordBuffer = gl.createBuffer();
+
+    // Create textures
+    createProceduralTextures();
+
+    // Set texture uniforms
+    gl.uniform1i(gl.getUniformLocation(program, 'floorTexture'), 0);
+    gl.uniform1i(gl.getUniformLocation(program, 'ceilingTexture'), 1);
+    gl.uniform1i(gl.getUniformLocation(program, 'wallTexture'), 2);
 
     return true;
 }
@@ -338,18 +533,18 @@ function renderEye(eyeX, eyeY, eyeZ) {
         -corridorWidth/4,  corridorHeight/4, corridorFar    // 19: top-left
     ];
 
-    // Define colors for each vertex (RGB)
-    const colors = [
-        // Floor (blue) - 4 vertices
-        0, 0, 1,  0, 0, 1,  0, 0, 1,  0, 0, 1,
-        // Ceiling (yellow) - 4 vertices
-        1, 1, 0,  1, 1, 0,  1, 1, 0,  1, 1, 0,
-        // Left wall (brown) - 4 vertices
-        0.5, 0.25, 0,  0.5, 0.25, 0,  0.5, 0.25, 0,  0.5, 0.25, 0,
-        // Right wall (orange) - 4 vertices
-        1, 0.5, 0,  1, 0.5, 0,  1, 0.5, 0,  1, 0.5, 0,
-        // End wall (red) - 4 vertices
-        1, 0, 0,  1, 0, 0,  1, 0, 0,  1, 0, 0
+    // Define texture coordinates for each vertex
+    const texCoords = [
+        // Floor - 4 vertices (scaled for tiling - reduced for larger tiles)
+        0, 0,  5, 0,  5, 5,  0, 5,
+        // Ceiling - 4 vertices (scaled for wood planks)
+        0, 0,  10, 0,  10, 15,  0, 15,
+        // Left wall - 4 vertices (scaled for brick pattern)
+        0, 0,  5, 0,  5, 10,  0, 10,
+        // Right wall - 4 vertices
+        0, 0,  5, 0,  5, 10,  0, 10,
+        // End wall - 4 vertices
+        0, 0,  3, 0,  3, 3,  0, 3
     ];
 
     // Define triangle indices for each wall
@@ -372,7 +567,13 @@ function renderEye(eyeX, eyeY, eyeZ) {
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
     gl.vertexAttribPointer(positionLocation, 3, gl.FLOAT, false, 0, 0);
 
-    // Create and bind color buffer
+    // Create and bind texture coordinate buffer
+    gl.bindBuffer(gl.ARRAY_BUFFER, texCoordBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(texCoords), gl.STATIC_DRAW);
+    gl.vertexAttribPointer(texCoordLocation, 2, gl.FLOAT, false, 0, 0);
+
+    // Dummy color buffer (shader still expects it)
+    const colors = new Array(20 * 3).fill(1);
     gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors), gl.STATIC_DRAW);
     gl.vertexAttribPointer(colorLocation, 3, gl.FLOAT, false, 0, 0);
@@ -383,21 +584,44 @@ function renderEye(eyeX, eyeY, eyeZ) {
     // Set MVP matrix
     gl.uniformMatrix4fv(mvpLocation, false, mvpMatrix);
 
-    // Draw corridor walls
+    // Create index buffer
     const indexBuffer = gl.createBuffer();
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
     gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices), gl.STATIC_DRAW);
 
-    // Debug: Log periodically to see what's happening
-    if (!window.debugCounter) window.debugCounter = 0;
-    if (window.debugCounter++ % 60 === 0) {  // Log every 60 frames (about once per second)
-        console.log('Head position:', headPosition);
-        console.log('First vertex:', vertices.slice(0, 3));
-        console.log('Corridor dimensions:', { width: corridorWidth, height: corridorHeight, near: corridorNear, far: corridorFar });
-        console.log('MVP Matrix first row:', mvpMatrix.slice(0, 4));
-    }
+    // Bind textures
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, floorTexture);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, ceilingTexture);
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, wallTexture);
+    gl.activeTexture(gl.TEXTURE3);
+    gl.bindTexture(gl.TEXTURE_2D, lampTexture);
 
-    gl.drawElements(gl.TRIANGLES, indices.length, gl.UNSIGNED_SHORT, 0);
+    // Render each surface type separately
+    // Floor
+    gl.uniform1i(surfaceTypeLocation, 0);
+    gl.drawElements(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0);
+
+    // Ceiling
+    gl.uniform1i(surfaceTypeLocation, 1);
+    gl.drawElements(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 6 * 2);
+
+    // Left wall
+    gl.uniform1i(surfaceTypeLocation, 2);
+    gl.drawElements(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 12 * 2);
+
+    // Right wall
+    gl.uniform1i(surfaceTypeLocation, 2);
+    gl.drawElements(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 18 * 2);
+
+    // End wall
+    gl.uniform1i(surfaceTypeLocation, 2);
+    gl.drawElements(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 24 * 2);
+
+    // Draw objects in the corridor
+    renderCorridorObjects(mvpMatrix);
 
     // Check for GL errors
     const error = gl.getError();
@@ -405,6 +629,400 @@ function renderEye(eyeX, eyeY, eyeZ) {
         console.error('WebGL Error:', error);
     }
 
+}
+
+// Function to render objects in the corridor
+function renderCorridorObjects(mvpMatrix) {
+    // Object 1: Table (left side, near)
+    const tableX = -60;
+    const tableY = -40;  // Table height from floor
+    const tableZ = -180;
+    const tableTopWidth = 50;
+    const tableTopDepth = 30;
+    const tableTopHeight = 3;
+    const tableLegWidth = 3;
+    const tableLegHeight = 40;
+
+    // Table top vertices
+    const tableVertices = [
+        // Table top (8 vertices for a box)
+        tableX - tableTopWidth/2, tableY, tableZ - tableTopDepth/2,
+        tableX + tableTopWidth/2, tableY, tableZ - tableTopDepth/2,
+        tableX + tableTopWidth/2, tableY + tableTopHeight, tableZ - tableTopDepth/2,
+        tableX - tableTopWidth/2, tableY + tableTopHeight, tableZ - tableTopDepth/2,
+        tableX - tableTopWidth/2, tableY, tableZ + tableTopDepth/2,
+        tableX + tableTopWidth/2, tableY, tableZ + tableTopDepth/2,
+        tableX + tableTopWidth/2, tableY + tableTopHeight, tableZ + tableTopDepth/2,
+        tableX - tableTopWidth/2, tableY + tableTopHeight, tableZ + tableTopDepth/2,
+
+        // Table legs (4 legs, 8 vertices each = 32 vertices)
+        // Front-left leg
+        tableX - tableTopWidth/2 + tableLegWidth, tableY - tableLegHeight, tableZ - tableTopDepth/2 + tableLegWidth,
+        tableX - tableTopWidth/2 + tableLegWidth*2, tableY - tableLegHeight, tableZ - tableTopDepth/2 + tableLegWidth,
+        tableX - tableTopWidth/2 + tableLegWidth*2, tableY, tableZ - tableTopDepth/2 + tableLegWidth,
+        tableX - tableTopWidth/2 + tableLegWidth, tableY, tableZ - tableTopDepth/2 + tableLegWidth,
+        tableX - tableTopWidth/2 + tableLegWidth, tableY - tableLegHeight, tableZ - tableTopDepth/2 + tableLegWidth*2,
+        tableX - tableTopWidth/2 + tableLegWidth*2, tableY - tableLegHeight, tableZ - tableTopDepth/2 + tableLegWidth*2,
+        tableX - tableTopWidth/2 + tableLegWidth*2, tableY, tableZ - tableTopDepth/2 + tableLegWidth*2,
+        tableX - tableTopWidth/2 + tableLegWidth, tableY, tableZ - tableTopDepth/2 + tableLegWidth*2,
+
+        // Front-right leg
+        tableX + tableTopWidth/2 - tableLegWidth*2, tableY - tableLegHeight, tableZ - tableTopDepth/2 + tableLegWidth,
+        tableX + tableTopWidth/2 - tableLegWidth, tableY - tableLegHeight, tableZ - tableTopDepth/2 + tableLegWidth,
+        tableX + tableTopWidth/2 - tableLegWidth, tableY, tableZ - tableTopDepth/2 + tableLegWidth,
+        tableX + tableTopWidth/2 - tableLegWidth*2, tableY, tableZ - tableTopDepth/2 + tableLegWidth,
+        tableX + tableTopWidth/2 - tableLegWidth*2, tableY - tableLegHeight, tableZ - tableTopDepth/2 + tableLegWidth*2,
+        tableX + tableTopWidth/2 - tableLegWidth, tableY - tableLegHeight, tableZ - tableTopDepth/2 + tableLegWidth*2,
+        tableX + tableTopWidth/2 - tableLegWidth, tableY, tableZ - tableTopDepth/2 + tableLegWidth*2,
+        tableX + tableTopWidth/2 - tableLegWidth*2, tableY, tableZ - tableTopDepth/2 + tableLegWidth*2,
+
+        // Back-left leg
+        tableX - tableTopWidth/2 + tableLegWidth, tableY - tableLegHeight, tableZ + tableTopDepth/2 - tableLegWidth*2,
+        tableX - tableTopWidth/2 + tableLegWidth*2, tableY - tableLegHeight, tableZ + tableTopDepth/2 - tableLegWidth*2,
+        tableX - tableTopWidth/2 + tableLegWidth*2, tableY, tableZ + tableTopDepth/2 - tableLegWidth*2,
+        tableX - tableTopWidth/2 + tableLegWidth, tableY, tableZ + tableTopDepth/2 - tableLegWidth*2,
+        tableX - tableTopWidth/2 + tableLegWidth, tableY - tableLegHeight, tableZ + tableTopDepth/2 - tableLegWidth,
+        tableX - tableTopWidth/2 + tableLegWidth*2, tableY - tableLegHeight, tableZ + tableTopDepth/2 - tableLegWidth,
+        tableX - tableTopWidth/2 + tableLegWidth*2, tableY, tableZ + tableTopDepth/2 - tableLegWidth,
+        tableX - tableTopWidth/2 + tableLegWidth, tableY, tableZ + tableTopDepth/2 - tableLegWidth,
+
+        // Back-right leg
+        tableX + tableTopWidth/2 - tableLegWidth*2, tableY - tableLegHeight, tableZ + tableTopDepth/2 - tableLegWidth*2,
+        tableX + tableTopWidth/2 - tableLegWidth, tableY - tableLegHeight, tableZ + tableTopDepth/2 - tableLegWidth*2,
+        tableX + tableTopWidth/2 - tableLegWidth, tableY, tableZ + tableTopDepth/2 - tableLegWidth*2,
+        tableX + tableTopWidth/2 - tableLegWidth*2, tableY, tableZ + tableTopDepth/2 - tableLegWidth*2,
+        tableX + tableTopWidth/2 - tableLegWidth*2, tableY - tableLegHeight, tableZ + tableTopDepth/2 - tableLegWidth,
+        tableX + tableTopWidth/2 - tableLegWidth, tableY - tableLegHeight, tableZ + tableTopDepth/2 - tableLegWidth,
+        tableX + tableTopWidth/2 - tableLegWidth, tableY, tableZ + tableTopDepth/2 - tableLegWidth,
+        tableX + tableTopWidth/2 - tableLegWidth*2, tableY, tableZ + tableTopDepth/2 - tableLegWidth,
+    ];
+
+    const tableIndices = [
+        // Table top
+        0, 1, 2,  0, 2, 3,  // Bottom
+        4, 6, 5,  4, 7, 6,  // Top
+        0, 4, 5,  0, 5, 1,  // Front
+        2, 6, 7,  2, 7, 3,  // Back
+        0, 3, 7,  0, 7, 4,  // Left
+        1, 5, 6,  1, 6, 2,  // Right
+
+        // Front-left leg
+        8, 9, 10,  8, 10, 11,  // Front
+        12, 14, 13,  12, 15, 14,  // Back
+        8, 12, 13,  8, 13, 9,  // Bottom
+        10, 14, 15,  10, 15, 11,  // Top
+        8, 11, 15,  8, 15, 12,  // Left
+        9, 13, 14,  9, 14, 10,   // Right
+
+        // Front-right leg
+        16, 17, 18,  16, 18, 19,  // Front
+        20, 22, 21,  20, 23, 22,  // Back
+        16, 20, 21,  16, 21, 17,  // Bottom
+        18, 22, 23,  18, 23, 19,  // Top
+        16, 19, 23,  16, 23, 20,  // Left
+        17, 21, 22,  17, 22, 18,  // Right
+
+        // Back-left leg
+        24, 25, 26,  24, 26, 27,  // Front
+        28, 30, 29,  28, 31, 30,  // Back
+        24, 28, 29,  24, 29, 25,  // Bottom
+        26, 30, 31,  26, 31, 27,  // Top
+        24, 27, 31,  24, 31, 28,  // Left
+        25, 29, 30,  25, 30, 26,  // Right
+
+        // Back-right leg
+        32, 33, 34,  32, 34, 35,  // Front
+        36, 38, 37,  36, 39, 38,  // Back
+        32, 36, 37,  32, 37, 33,  // Bottom
+        34, 38, 39,  34, 39, 35,  // Top
+        32, 35, 39,  32, 39, 36,  // Left
+        33, 37, 38,  33, 38, 34,  // Right
+    ];
+
+    // Object 2: Chair (right side, middle distance)
+    const chairX = 70;
+    const chairY = -80;  // Ground level
+    const chairZ = -350;  // Further away
+    const chairSeatSize = 25;
+    const chairBackHeight = 35;
+    const chairSeatHeight = 25;
+    const chairLegWidth = 2;
+
+    const chairVertices = [
+        // Seat (8 vertices)
+        chairX - chairSeatSize/2, chairY + chairSeatHeight, chairZ - chairSeatSize/2,
+        chairX + chairSeatSize/2, chairY + chairSeatHeight, chairZ - chairSeatSize/2,
+        chairX + chairSeatSize/2, chairY + chairSeatHeight + 3, chairZ - chairSeatSize/2,
+        chairX - chairSeatSize/2, chairY + chairSeatHeight + 3, chairZ - chairSeatSize/2,
+        chairX - chairSeatSize/2, chairY + chairSeatHeight, chairZ + chairSeatSize/2,
+        chairX + chairSeatSize/2, chairY + chairSeatHeight, chairZ + chairSeatSize/2,
+        chairX + chairSeatSize/2, chairY + chairSeatHeight + 3, chairZ + chairSeatSize/2,
+        chairX - chairSeatSize/2, chairY + chairSeatHeight + 3, chairZ + chairSeatSize/2,
+
+        // Back (8 vertices)
+        chairX - chairSeatSize/2, chairY + chairSeatHeight, chairZ - chairSeatSize/2,
+        chairX + chairSeatSize/2, chairY + chairSeatHeight, chairZ - chairSeatSize/2,
+        chairX + chairSeatSize/2, chairY + chairSeatHeight + chairBackHeight, chairZ - chairSeatSize/2,
+        chairX - chairSeatSize/2, chairY + chairSeatHeight + chairBackHeight, chairZ - chairSeatSize/2,
+        chairX - chairSeatSize/2, chairY + chairSeatHeight, chairZ - chairSeatSize/2 + 3,
+        chairX + chairSeatSize/2, chairY + chairSeatHeight, chairZ - chairSeatSize/2 + 3,
+        chairX + chairSeatSize/2, chairY + chairSeatHeight + chairBackHeight, chairZ - chairSeatSize/2 + 3,
+        chairX - chairSeatSize/2, chairY + chairSeatHeight + chairBackHeight, chairZ - chairSeatSize/2 + 3,
+
+        // Four chair legs (8 vertices each = 32 vertices)
+        // Front-left leg
+        chairX - chairSeatSize/2 + chairLegWidth, chairY, chairZ - chairSeatSize/2 + chairLegWidth,
+        chairX - chairSeatSize/2 + chairLegWidth*2, chairY, chairZ - chairSeatSize/2 + chairLegWidth,
+        chairX - chairSeatSize/2 + chairLegWidth*2, chairY + chairSeatHeight, chairZ - chairSeatSize/2 + chairLegWidth,
+        chairX - chairSeatSize/2 + chairLegWidth, chairY + chairSeatHeight, chairZ - chairSeatSize/2 + chairLegWidth,
+        chairX - chairSeatSize/2 + chairLegWidth, chairY, chairZ - chairSeatSize/2 + chairLegWidth*2,
+        chairX - chairSeatSize/2 + chairLegWidth*2, chairY, chairZ - chairSeatSize/2 + chairLegWidth*2,
+        chairX - chairSeatSize/2 + chairLegWidth*2, chairY + chairSeatHeight, chairZ - chairSeatSize/2 + chairLegWidth*2,
+        chairX - chairSeatSize/2 + chairLegWidth, chairY + chairSeatHeight, chairZ - chairSeatSize/2 + chairLegWidth*2,
+
+        // Front-right leg
+        chairX + chairSeatSize/2 - chairLegWidth*2, chairY, chairZ - chairSeatSize/2 + chairLegWidth,
+        chairX + chairSeatSize/2 - chairLegWidth, chairY, chairZ - chairSeatSize/2 + chairLegWidth,
+        chairX + chairSeatSize/2 - chairLegWidth, chairY + chairSeatHeight, chairZ - chairSeatSize/2 + chairLegWidth,
+        chairX + chairSeatSize/2 - chairLegWidth*2, chairY + chairSeatHeight, chairZ - chairSeatSize/2 + chairLegWidth,
+        chairX + chairSeatSize/2 - chairLegWidth*2, chairY, chairZ - chairSeatSize/2 + chairLegWidth*2,
+        chairX + chairSeatSize/2 - chairLegWidth, chairY, chairZ - chairSeatSize/2 + chairLegWidth*2,
+        chairX + chairSeatSize/2 - chairLegWidth, chairY + chairSeatHeight, chairZ - chairSeatSize/2 + chairLegWidth*2,
+        chairX + chairSeatSize/2 - chairLegWidth*2, chairY + chairSeatHeight, chairZ - chairSeatSize/2 + chairLegWidth*2,
+
+        // Back-left leg
+        chairX - chairSeatSize/2 + chairLegWidth, chairY, chairZ + chairSeatSize/2 - chairLegWidth*2,
+        chairX - chairSeatSize/2 + chairLegWidth*2, chairY, chairZ + chairSeatSize/2 - chairLegWidth*2,
+        chairX - chairSeatSize/2 + chairLegWidth*2, chairY + chairSeatHeight, chairZ + chairSeatSize/2 - chairLegWidth*2,
+        chairX - chairSeatSize/2 + chairLegWidth, chairY + chairSeatHeight, chairZ + chairSeatSize/2 - chairLegWidth*2,
+        chairX - chairSeatSize/2 + chairLegWidth, chairY, chairZ + chairSeatSize/2 - chairLegWidth,
+        chairX - chairSeatSize/2 + chairLegWidth*2, chairY, chairZ + chairSeatSize/2 - chairLegWidth,
+        chairX - chairSeatSize/2 + chairLegWidth*2, chairY + chairSeatHeight, chairZ + chairSeatSize/2 - chairLegWidth,
+        chairX - chairSeatSize/2 + chairLegWidth, chairY + chairSeatHeight, chairZ + chairSeatSize/2 - chairLegWidth,
+
+        // Back-right leg
+        chairX + chairSeatSize/2 - chairLegWidth*2, chairY, chairZ + chairSeatSize/2 - chairLegWidth*2,
+        chairX + chairSeatSize/2 - chairLegWidth, chairY, chairZ + chairSeatSize/2 - chairLegWidth*2,
+        chairX + chairSeatSize/2 - chairLegWidth, chairY + chairSeatHeight, chairZ + chairSeatSize/2 - chairLegWidth*2,
+        chairX + chairSeatSize/2 - chairLegWidth*2, chairY + chairSeatHeight, chairZ + chairSeatSize/2 - chairLegWidth*2,
+        chairX + chairSeatSize/2 - chairLegWidth*2, chairY, chairZ + chairSeatSize/2 - chairLegWidth,
+        chairX + chairSeatSize/2 - chairLegWidth, chairY, chairZ + chairSeatSize/2 - chairLegWidth,
+        chairX + chairSeatSize/2 - chairLegWidth, chairY + chairSeatHeight, chairZ + chairSeatSize/2 - chairLegWidth,
+        chairX + chairSeatSize/2 - chairLegWidth*2, chairY + chairSeatHeight, chairZ + chairSeatSize/2 - chairLegWidth,
+    ];
+
+    const chairIndices = [
+        // Seat
+        0, 1, 2,  0, 2, 3,
+        4, 6, 5,  4, 7, 6,
+        0, 4, 5,  0, 5, 1,
+        2, 6, 7,  2, 7, 3,
+        0, 3, 7,  0, 7, 4,
+        1, 5, 6,  1, 6, 2,
+
+        // Back
+        8, 9, 10,  8, 10, 11,
+        12, 14, 13,  12, 15, 14,
+        8, 12, 13,  8, 13, 9,
+        10, 14, 15,  10, 15, 11,
+        8, 11, 15,  8, 15, 12,
+        9, 13, 14,  9, 14, 10,
+
+        // Front-left leg
+        16, 17, 18,  16, 18, 19,
+        20, 22, 21,  20, 23, 22,
+        16, 20, 21,  16, 21, 17,
+        18, 22, 23,  18, 23, 19,
+        16, 19, 23,  16, 23, 20,
+        17, 21, 22,  17, 22, 18,
+
+        // Front-right leg
+        24, 25, 26,  24, 26, 27,
+        28, 30, 29,  28, 31, 30,
+        24, 28, 29,  24, 29, 25,
+        26, 30, 31,  26, 31, 27,
+        24, 27, 31,  24, 31, 28,
+        25, 29, 30,  25, 30, 26,
+
+        // Back-left leg
+        32, 33, 34,  32, 34, 35,
+        36, 38, 37,  36, 39, 38,
+        32, 36, 37,  32, 37, 33,
+        34, 38, 39,  34, 39, 35,
+        32, 35, 39,  32, 39, 36,
+        33, 37, 38,  33, 38, 34,
+
+        // Back-right leg
+        40, 41, 42,  40, 42, 43,
+        44, 46, 45,  44, 47, 46,
+        40, 44, 45,  40, 45, 41,
+        42, 46, 47,  42, 47, 43,
+        40, 43, 47,  40, 47, 44,
+        41, 45, 46,  41, 46, 42,
+    ];
+
+    // Object 3: Ball (center floor, far)
+    const ballRadius = 15;
+    const ballX = -20;
+    const ballY = -65;  // On the floor
+    const ballZ = -500;
+
+    // Create sphere vertices (simplified icosahedron)
+    const t = (1.0 + Math.sqrt(5.0)) / 2.0;
+    const ballVertices = [];
+    const baseVerts = [
+        [-1, t, 0], [1, t, 0], [-1, -t, 0], [1, -t, 0],
+        [0, -1, t], [0, 1, t], [0, -1, -t], [0, 1, -t],
+        [t, 0, -1], [t, 0, 1], [-t, 0, -1], [-t, 0, 1]
+    ];
+
+    for (let vert of baseVerts) {
+        const len = Math.sqrt(vert[0]*vert[0] + vert[1]*vert[1] + vert[2]*vert[2]);
+        ballVertices.push(
+            ballX + vert[0] / len * ballRadius,
+            ballY + vert[1] / len * ballRadius,
+            ballZ + vert[2] / len * ballRadius
+        );
+    }
+
+    const ballIndices = [
+        0, 11, 5, 0, 5, 1, 0, 1, 7, 0, 7, 10, 0, 10, 11,
+        1, 5, 9, 5, 11, 4, 11, 10, 2, 10, 7, 6, 7, 1, 8,
+        3, 9, 4, 3, 4, 2, 3, 2, 6, 3, 6, 8, 3, 8, 9,
+        4, 9, 5, 2, 4, 11, 6, 2, 10, 8, 6, 7, 9, 8, 1
+    ];
+
+    // Object 4: Ceiling lamp (hanging from ceiling)
+    const lampX = 20;
+    const lampY = 80;  // Near ceiling
+    const lampZ = -400;  // Further away
+    const lampShadeRadius = 20;
+    const lampShadeHeight = 15;
+    const lampCordLength = 20;
+
+    const lampVertices = [
+        // Lamp shade (inverted cone - wider at bottom)
+        lampX, lampY, lampZ,  // Apex (top of shade, where cord connects)
+        // Octagon base points (at bottom of shade)
+        lampX + lampShadeRadius, lampY - lampShadeHeight, lampZ,
+        lampX + lampShadeRadius * 0.7, lampY - lampShadeHeight, lampZ + lampShadeRadius * 0.7,
+        lampX, lampY - lampShadeHeight, lampZ + lampShadeRadius,
+        lampX - lampShadeRadius * 0.7, lampY - lampShadeHeight, lampZ + lampShadeRadius * 0.7,
+        lampX - lampShadeRadius, lampY - lampShadeHeight, lampZ,
+        lampX - lampShadeRadius * 0.7, lampY - lampShadeHeight, lampZ - lampShadeRadius * 0.7,
+        lampX, lampY - lampShadeHeight, lampZ - lampShadeRadius,
+        lampX + lampShadeRadius * 0.7, lampY - lampShadeHeight, lampZ - lampShadeRadius * 0.7,
+
+        // Lamp cord (thin cylinder connecting to ceiling)
+        lampX - 1, lampY, lampZ - 1,
+        lampX + 1, lampY, lampZ - 1,
+        lampX + 1, lampY + lampCordLength, lampZ - 1,
+        lampX - 1, lampY + lampCordLength, lampZ - 1,
+        lampX - 1, lampY, lampZ + 1,
+        lampX + 1, lampY, lampZ + 1,
+        lampX + 1, lampY + lampCordLength, lampZ + 1,
+        lampX - 1, lampY + lampCordLength, lampZ + 1,
+    ];
+
+    const lampIndices = [
+        // Lamp shade triangles
+        0, 1, 2,
+        0, 2, 3,
+        0, 3, 4,
+        0, 4, 5,
+        0, 5, 6,
+        0, 6, 7,
+        0, 7, 8,
+        0, 8, 1,
+        // Shade base
+        1, 2, 3,  1, 3, 5,  1, 5, 7,  1, 7, 8,  3, 4, 5,  5, 6, 7,
+
+        // Cord
+        9, 10, 11,  9, 11, 12,
+        13, 15, 14,  13, 16, 15,
+        9, 13, 14,  9, 14, 10,
+        11, 15, 16,  11, 16, 12,
+        9, 12, 16,  9, 16, 13,
+        10, 14, 15,  10, 15, 11,
+    ];
+
+    // Set up buffers and render each object
+    const positionBuffer = gl.createBuffer();
+    const indexBuffer = gl.createBuffer();
+
+    // Render table with wood texture
+    const tableTexCoords = new Array(40 * 2).fill(0).map((_, i) => (i % 4 < 2) ? 0 : 1); // UV coords for table vertices (8 top + 32 legs)
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(tableVertices), gl.STATIC_DRAW);
+    gl.vertexAttribPointer(positionLocation, 3, gl.FLOAT, false, 0, 0);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, texCoordBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(tableTexCoords), gl.STATIC_DRAW);
+    gl.vertexAttribPointer(texCoordLocation, 2, gl.FLOAT, false, 0, 0);
+
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(tableIndices), gl.STATIC_DRAW);
+
+    gl.uniform1i(surfaceTypeLocation, 1); // Use wood (ceiling) texture for table
+    gl.uniformMatrix4fv(mvpLocation, false, mvpMatrix);
+    gl.drawElements(gl.TRIANGLES, tableIndices.length, gl.UNSIGNED_SHORT, 0);
+
+    // Render chair with wood texture
+    const chairTexCoords = new Array(48 * 2).fill(0).map((_, i) => (i % 4 < 2) ? 0 : 1);  // 16 seat/back + 32 legs
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(chairVertices), gl.STATIC_DRAW);
+    gl.vertexAttribPointer(positionLocation, 3, gl.FLOAT, false, 0, 0);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, texCoordBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(chairTexCoords), gl.STATIC_DRAW);
+    gl.vertexAttribPointer(texCoordLocation, 2, gl.FLOAT, false, 0, 0);
+
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(chairIndices), gl.STATIC_DRAW);
+
+    gl.uniform1i(surfaceTypeLocation, 1); // Use wood texture for chair
+    gl.drawElements(gl.TRIANGLES, chairIndices.length, gl.UNSIGNED_SHORT, 0);
+
+    // Render ball with solid color texture (create stable UVs)
+    const ballTexCoords = new Array(12 * 2).fill(0).map((_, i) => {
+        // Create stable UV coordinates based on vertex index
+        const vertIndex = Math.floor(i / 2);
+        return (i % 2 === 0) ? vertIndex / 12 : 1 - vertIndex / 12;
+    });
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(ballVertices), gl.STATIC_DRAW);
+    gl.vertexAttribPointer(positionLocation, 3, gl.FLOAT, false, 0, 0);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, texCoordBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(ballTexCoords), gl.STATIC_DRAW);
+    gl.vertexAttribPointer(texCoordLocation, 2, gl.FLOAT, false, 0, 0);
+
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(ballIndices), gl.STATIC_DRAW);
+
+    gl.uniform1i(surfaceTypeLocation, 0); // Use checkered floor texture for ball
+    gl.drawElements(gl.TRIANGLES, ballIndices.length, gl.UNSIGNED_SHORT, 0);
+
+    // Render ceiling lamp with metallic/yellow color
+    const lampTexCoords = new Array(17 * 2).fill(0).map((_, i) => (i % 4 < 2) ? 0 : 1);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(lampVertices), gl.STATIC_DRAW);
+    gl.vertexAttribPointer(positionLocation, 3, gl.FLOAT, false, 0, 0);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, texCoordBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(lampTexCoords), gl.STATIC_DRAW);
+    gl.vertexAttribPointer(texCoordLocation, 2, gl.FLOAT, false, 0, 0);
+
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(lampIndices), gl.STATIC_DRAW);
+
+    // Create a special texture for the lamp (yellowish metallic)
+    gl.uniform1i(surfaceTypeLocation, 3); // Use a different texture type for lamp
+    gl.drawElements(gl.TRIANGLES, lampIndices.length, gl.UNSIGNED_SHORT, 0);
 }
 
 // Isometric debug view
