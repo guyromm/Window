@@ -742,7 +742,7 @@ function renderCorridorObjects(mvpMatrix) {
     // Object 2: Chair (right side, middle distance)
     const chairX = 70;
     const chairY = -80;  // Ground level
-    const chairZ = -350;  // Further away
+    const chairZ = -450;  // Much further away
     const chairSeatSize = 25;
     const chairBackHeight = 35;
     const chairSeatHeight = 25;
@@ -865,7 +865,7 @@ function renderCorridorObjects(mvpMatrix) {
     const ballRadius = 15;
     const ballX = -20;
     const ballY = -65;  // On the floor
-    const ballZ = -500;
+    const ballZ = -600;  // Even further away
 
     // Create sphere vertices (simplified icosahedron)
     const t = (1.0 + Math.sqrt(5.0)) / 2.0;
