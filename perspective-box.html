@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Perspective-Correct 3D Box</title>
+    <link rel="stylesheet" href="perspective-box.css">
+</head>
+<body>
+    <canvas id="glCanvas"></canvas>
+
+    <div id="controls">
+        <div class="status">Head Tracking: <span id="trackingStatus">Off</span></div>
+        <div>Head X: <span id="headX">0.0</span> cm</div>
+        <div>Head Y: <span id="headY">0.0</span> cm</div>
+        <div>Head Z: <span id="headZ">40.0</span> cm</div>
+        <div>Face Detected: <span id="faceDetected">No</span></div>
+        <div style="margin-top: 10px;">
+            <button id="trackingBtn" onclick="toggleHeadTracking()">Stop Head Tracking</button>
+            <button onclick="calibrateDistance()">Calibrate Distance</button>
+        </div>
+        <div style="margin-top: 10px;">
+            <label style="cursor: pointer;">
+                <input type="checkbox" id="interlacedMode" onchange="toggleInterlacedMode()">
+                <span style="color: #00ff00;">Interlaced Stereo Mode</span>
+            </label>
+        </div>
+        <div style="margin-top: 10px; font-size: 10px; color: #888;">
+            Move your head to see perspective change!<br>
+            Calibrate distance for better accuracy.
+        </div>
+    </div>
+
+    <div id="video-container">
+        <video id="video" autoplay muted></video>
+        <canvas id="canvas-overlay"></canvas>
+    </div>
+
+    <!-- Isometric debug view -->
+    <canvas id="isometric-debug" width="300" height="300"></canvas>
+
+    <!-- MediaPipe Face Detection -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection.js"></script>
+    <script src="perspective-box.js"></script>
+</body>
+</html>
