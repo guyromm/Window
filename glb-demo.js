@@ -607,38 +607,35 @@ window.calibrateDistance = function() {
 function setupMobileUI() {
     const controls = document.getElementById('controls');
     const isometricDebug = document.getElementById('isometric-debug');
-    // Collapse on mobile or landscape with limited height
-    const isMobile = window.matchMedia('(max-width: 768px)').matches ||
-                     window.matchMedia('(max-height: 500px)').matches;
+    const overlayCanvas = document.getElementById('canvas-overlay');
 
-    if (isMobile) {
-        // Start minimized on mobile
-        controls.classList.add('minimized');
+    // Always start minimized on all devices
+    controls.classList.add('minimized');
+    isometricDebug.style.display = 'none';
+    overlayCanvas.style.display = 'none';
 
-        // Hide isometric debug view on mobile by default
-        isometricDebug.style.display = 'none';
+    // Add click handler to h3 to toggle
+    const h3 = controls.querySelector('h3');
+    h3.addEventListener('click', () => {
+        controls.classList.toggle('minimized');
 
-        // Add click handler to h3 to toggle
-        const h3 = controls.querySelector('h3');
-        h3.addEventListener('click', () => {
-            controls.classList.toggle('minimized');
+        // Show/hide debug views when controls are expanded/collapsed
+        if (controls.classList.contains('minimized')) {
+            isometricDebug.style.display = 'none';
+            overlayCanvas.style.display = 'none';
+        } else {
+            isometricDebug.style.display = 'block';
+            overlayCanvas.style.display = 'block';
+        }
+    });
 
-            // Show/hide isometric debug when controls are expanded/collapsed
-            if (controls.classList.contains('minimized')) {
-                isometricDebug.style.display = 'none';
-            } else {
-                isometricDebug.style.display = 'block';
-            }
+    // Prevent clicks inside control groups from toggling
+    const controlGroups = controls.querySelectorAll('.control-group');
+    controlGroups.forEach(group => {
+        group.addEventListener('click', (e) => {
+            e.stopPropagation();
         });
-
-        // Prevent clicks inside control groups from toggling
-        const controlGroups = controls.querySelectorAll('.control-group');
-        controlGroups.forEach(group => {
-            group.addEventListener('click', (e) => {
-                e.stopPropagation();
-            });
-        });
-    }
+    });
 }
 
 // Draw isometric debug view

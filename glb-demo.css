@@ -52,27 +52,32 @@ body {
     transition: all 0.3s ease;
 }
 
+/* Minimized state styles for all devices */
+#controls.minimized {
+    padding: 10px;
+    overflow: hidden;
+    cursor: pointer;
+}
+
+#controls.minimized .control-group,
+#controls.minimized h4 {
+    display: none;
+}
+
+#controls.minimized h3::after {
+    content: " (click to expand)";
+    font-size: 10px;
+    color: #ffff00;
+}
+
 /* Mobile styles - portrait and landscape */
 @media (max-width: 768px), (max-height: 500px) {
     #controls {
         max-width: 90vw;
     }
 
-    #controls.minimized {
-        padding: 10px;
-        overflow: hidden;
-        cursor: pointer;
-    }
-
-    #controls.minimized .control-group,
-    #controls.minimized h4 {
-        display: none;
-    }
-
     #controls.minimized h3::after {
         content: " (tap to expand)";
-        font-size: 10px;
-        color: #ffff00;
     }
 
     #canvas-overlay {
